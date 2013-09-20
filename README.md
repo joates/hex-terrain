@@ -3,6 +3,8 @@ hex-terrain
 
 Standalone demo module that creates hexagonal terrain tiles on demand
 
+![screenshot](https://raw.githubusercontent.com/joates/hex-terrain/master/img/screenshot1.png)
+
 * `npm install hex-terrain`
 * `cd hex-terrain`
 * `npm install` ( _to fetch dependencies_ )

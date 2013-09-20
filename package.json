@@ -1,8 +1,7 @@
 {
   "name": "hex-terrain",
   "description": "Standalone demo module that creates hexagonal terrain tiles on demand.",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.0.1-alpha",
   "scripts": {
     "start": "node app.js"
   },
