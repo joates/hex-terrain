@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>hex-terrain</title>
+    <style>body {padding:0; margin:0;font:18px Monospace;overflow:hidden}</style>
+    <script src="/three.js/build/three.min.js"></script>
+    <script src="/three.js/examples/js/libs/tween.min.js"></script>
+    <script src="/three.js/examples/js/controls/OrbitControls.js"></script>
+
+		<script src="/three.js/examples/js/shaders/ConvolutionShader.js"></script>
+		<script src="/three.js/examples/js/shaders/CopyShader.js"></script>
+
+		<script src="/three.js/examples/js/postprocessing/EffectComposer.js"></script>
+		<script src="/three.js/examples/js/postprocessing/MaskPass.js"></script>
+		<script src="/three.js/examples/js/postprocessing/RenderPass.js"></script>
+		<script src="/three.js/examples/js/postprocessing/ShaderPass.js"></script>
+		<script src="/three.js/examples/js/postprocessing/BloomPass.js"></script>
+
+    <script src="js/Hexagon.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+  </head>
+  <body>
+    <script>
+
+      // client/server comms.
+      var socket = io.connect('http://localhost:8000')
+      socket.on('newTile', function (tile) {
+        renderPatch(tile)
+      })
+
+      // main.
+      var camera, scene
+        , renderer, composer
+        , mesh, material
+        , lights = []
+        , WIDTH, HEIGHT
+        , tween_active = false
+        , el = 32   /* edge length */
+
+      init()
+      animate()
+
+      function init() {
+        console.log("%c Use the '+' key to fetch a new tile ", 'background:#222;color:#ee9000')
+
+        WIDTH  = window.innerWidth
+        HEIGHT = window.innerHeight
+
+        scene = new THREE.Scene()
+
+        camera = new THREE.PerspectiveCamera(40, WIDTH/HEIGHT, 0.1, 10000)
+        camera.position.set(0, el * 2, el * 4)
+        camera.lookAt(scene.position)
+
+        controls = new THREE.OrbitControls(camera)
+        controls.userPan = false
+        controls.noKeys  = true
+
+        lights[0] = new THREE.DirectionalLight(0xffffff, 0.3)
+        lights[1] = new THREE.DirectionalLight(0xccffff, 0.8)
+        lights[0].position.set(-0.5, 1,  1.5).normalize()
+        lights[1].position.set(-0.5, 1, -1.5).normalize()
+        scene.add(lights[0])
+        scene.add(lights[1])
+
+        material = new THREE.MeshPhongMaterial({
+          shininess: 60, ambient: 0x223344, specular: 0x999999,
+          vertexColors: THREE.VertexColors
+        })
+
+        renderer = new THREE.WebGLRenderer({ antialias: true })
+        renderer.setSize(WIDTH, HEIGHT)
+        renderer.setClearColor(0x000000, 1)
+        renderer.autoClear = false
+
+        document.body.appendChild(renderer.domElement)
+
+				// postprocessing
+				var renderModel = new THREE.RenderPass(scene, camera)
+				//var effectBloom = new THREE.BloomPass(1.6)
+				var effectBloom = new THREE.BloomPass(2.5, 20, 3.2)
+				var effectCopy  = new THREE.ShaderPass(THREE.CopyShader)
+
+				effectCopy.renderToScreen = true
+
+				composer = new THREE.EffectComposer(renderer)
+				composer.addPass(renderModel)
+				composer.addPass(effectBloom)
+				composer.addPass(effectCopy)
+
+        // events.
+        window.addEventListener(  'resize',  onWindowResize, false)
+        document.addEventListener('keydown', onKeyDown, false)
+      }
+
+      function animate() {
+        requestAnimationFrame(animate)
+        update()
+        render()
+      }
+
+      function update() {
+        TWEEN.update()
+        controls.update()
+      }
+
+      function render() {
+        renderer.clear()
+        composer.render()
+        //renderer.render(scene, camera)
+      }
+
+      function renderPatch(tile) {
+        if (mesh !== undefined && mesh instanceof THREE.Mesh) {
+          scene.remove(mesh)
+          delete mesh
+        }
+
+        var tData = tile.data
+          , tSize = Math.sqrt(tData.length)
+          , terrain = new THREE.Geometry()
+
+        // Create some hexagons.
+        for (var y=0; y<tSize; y++) {
+          for (var x=0; x<tSize; x++) {
+            var i = x + (y * tSize)
+
+            // NOTE: y-coord is flipped (by joates 07-Jul-2013)
+            var hex = new Hexagon(x, tSize-y-1, el, tData[i])
+            var g = hex.draw()
+            THREE.GeometryUtils.merge(terrain, g)
+          }
+        }
+
+        // align camera view with hex edge.
+        terrain.applyMatrix(new THREE.Matrix4().makeRotationY(-Math.PI / 6))
+
+        // translate geometry origin to tile center,
+        // TODO: how to calculate exact center of a cell ??
+        var tc = new THREE.Vector3(-tSize * el * 1.5, 0, 0)
+          // approximate the center coordinate (i.e. guessing !!)
+          , ac = tc.add(new THREE.Vector3(-9.5, 0, 3.4))
+        terrain.applyMatrix(new THREE.Matrix4().makeTranslation(ac.x, ac.y, ac.z))
+
+        mesh = new THREE.Mesh(terrain, material)
+        scene.add(mesh)
+      }
+
+      function viewDelay(t) {
+        // add some time between key presses.
+        setTimeout(function(){ tween_active = false }, t)
+      }
+
+      function viewChange(a) {
+        tween_active = true
+
+        var mc = mesh.clone()
+        mc.rotateOnAxis(new THREE.Vector3(0, 1, 0), a)
+
+        new TWEEN.Tween(mesh.quaternion).to({
+          x: mc.quaternion.x,
+          y: mc.quaternion.y,
+          z: mc.quaternion.z,
+          w: mc.quaternion.w
+        }, 400)
+        .onComplete(function(){ viewDelay(200) })
+        .interpolation(TWEEN.Interpolation.Linear)
+        .easing(TWEEN.Easing.Quadratic.In)
+        .start()
+      }
+
+      function onWindowResize() {
+        WIDTH  = window.innerWidth
+        HEIGHT = window.innerHeight
+
+        camera.aspect = WIDTH / HEIGHT
+        camera.updateProjectionMatrix()
+
+        renderer.setSize(WIDTH, HEIGHT)
+      }
+
+      function onKeyDown(event) {
+        switch(event.which || event.keyCode) {
+          case 107: /*add*/
+          case 187: /*plus*/
+            socket.emit('getTile')
+            break
+
+          case 37: /* Left arrow */
+            if (! tween_active) viewChange(- Math.PI / 3)
+            event.preventDefault()
+            break
+            
+
+          case 39: /* Right arrow */
+            if (! tween_active) viewChange(Math.PI / 3)
+            event.preventDefault()
+            break
+
+          case 38:  case 40:        // Up & Down arrow keys
+            event.preventDefault()
+            break
+
+          default: break         // do not block other keys
+        }
+      }
+
+    </script>
+  </body>
+</html>
